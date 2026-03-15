@@ -227,6 +227,8 @@ if "prompt_history" not in st.session_state:
     st.session_state.prompt_history = []
 if "last_prompt" not in st.session_state:
     st.session_state.last_prompt = ""
+if "dupes_removed" not in st.session_state:
+    st.session_state.dupes_removed = 0
 
 # ─── Sidebar ─────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -292,7 +294,7 @@ with tab1:
         )
         extra_instructions = st.text_area(
             "Extra Instructions (optional)",
-            placeholder="e.g. Make income correlated with age. Cities should be US only. No nulls.",
+            placeholder="e.g. Make income correlated with age. Cities should be US only. No nulls.\nTip: for income columns add 'use varied decimal places, not just .00/.25/.50/.75'",
             height=80
         )
 
@@ -379,9 +381,10 @@ with tab1:
         # Results appear here
         if st.session_state.generated_df is not None:
             df = st.session_state.generated_df
+            dupe_msg = f" • {st.session_state.dupes_removed} duplicate(s) removed" if st.session_state.dupes_removed > 0 else ""
             st.markdown(f"""
             <div class='custom-success'>
-              ✓ Generated {len(df)} rows × {len(df.columns)} columns
+              ✓ Generated {len(df)} rows × {len(df.columns)} columns{dupe_msg}
             </div>
             """, unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
@@ -436,12 +439,16 @@ if generate_clicked:
         system_prompt = """You are a synthetic data generation engine. Your sole job is to produce 
 realistic, statistically plausible tabular datasets as valid JSON.
 
+Think step by step about what realistic values look like for each column before generating — 
+consider real-world distributions, correlations between columns, and domain-specific constraints.
+
 RULES:
 1. Return ONLY a raw JSON array of objects — no markdown, no explanation, no code fences.
 2. Every row must contain ALL specified columns.
 3. Values must be realistic, internally consistent, and match the stated data types.
 4. Vary values naturally — avoid repetition or obvious patterns.
-5. Respect any correlations or constraints mentioned by the user."""
+5. Respect any correlations or constraints mentioned by the user.
+6. For numeric columns, use natural variation in decimal places — avoid mechanical patterns like always ending in .00, .25, .50, or .75."""
 
         user_prompt = f"""Generate {num_rows} rows of synthetic data for the following dataset.
 
@@ -527,7 +534,18 @@ Return a JSON array with exactly {rows_this_batch} objects, one per row."""
             progress_bar.progress(1.0, text=f"✅ Complete! Generated {num_rows} rows across {num_batches} batches.")
 
             df = pd.DataFrame(batches)
+
+            # ── Trim to exact row count (batches can overshoot) ──────
+            if len(df) > num_rows:
+                df = df.head(num_rows)
+
+            # ── Drop duplicates introduced across batch boundaries ───
+            dupes_before = len(df)
+            df = df.drop_duplicates().reset_index(drop=True)
+            dupes_removed = dupes_before - len(df)
+
             st.session_state.generated_df = df
+            st.session_state.dupes_removed = dupes_removed
             st.rerun()
 
         except json.JSONDecodeError as e:
@@ -588,9 +606,15 @@ with tab2:
         },
         {
             "version": "v2.2 — Batch Generation + Diversity Hints",
-            "prompt": "Split large requests into 100-row batches. Each batch prompt includes: 'This is batch N of M. Ensure diversity — do NOT repeat values from previous batches.'",
+            "prompt": "Split large requests into 50-row batches. Each batch prompt includes: 'This is batch N of M. Ensure diversity — do NOT repeat values from previous batches.'",
             "result": "✅ Supports up to 2,000 rows. Data stays varied across batches. Token limit errors eliminated.",
             "lesson": "Batching is essential at scale. Adding explicit diversity instructions per-batch prevents repetition across API calls."
+        },
+        {
+            "version": "v2.3 — Chain-of-Thought + Quality Fixes",
+            "prompt": "Added CoT instruction to system prompt: 'Think step by step about what realistic values look like for each column before generating.' Also added Rule 6 banning mechanical decimal patterns (.00/.25/.50/.75). Post-generation: trim to exact row count and auto-deduplicate.",
+            "result": "✅ Income decimals more varied. Row count always exactly matches request. Duplicate rows eliminated automatically.",
+            "lesson": "Chain-of-Thought improves reasoning about realistic distributions. Post-processing catches quality issues the LLM introduces at batch boundaries."
         },
     ]
 
