@@ -405,12 +405,10 @@ with tab1:
 if generate_clicked:
     if not api_key:
         st.error("⚠️ Please enter your Anthropic API key in the sidebar.")
-        # ── Validate schema ──────────────────────────────────────────
-        blank_named = [c for c in st.session_state.columns if not c["name"].strip() and c in valid_cols]
-        if not valid_cols:
-            st.error("⚠️ Please define at least one column with a name.")
-        elif any(not c["name"].strip() for c in st.session_state.columns if c["name"].strip() == ""):
-            st.error("⚠️ One or more columns have a blank name. Please fill in all column names before generating.")
+    elif not valid_cols:
+        st.error("⚠️ Please define at least one column with a name.")
+    elif any(not c["name"].strip() for c in st.session_state.columns):
+        st.error("⚠️ One or more columns have a blank name. Please fill in all column names or remove the empty row before generating.")
     else:
         schema_text = "\n".join([
             f"- {c['name']} ({c['type']}): {c['description']}"
