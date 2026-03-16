@@ -477,7 +477,7 @@ Now generate {num_rows} diverse, realistic rows following the same JSON structur
         st.session_state.last_prompt = user_prompt
 
         # ── Batch settings ──────────────────────────────────────────
-        BATCH_SIZE = 25  # rows per API call — stays well within token limits
+        BATCH_SIZE = 50  # rows per API call — safe with max_tokens 8192
         batches = []
         num_batches = (num_rows + BATCH_SIZE - 1) // BATCH_SIZE  # ceiling division
 
