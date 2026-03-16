@@ -219,7 +219,7 @@ if "columns" not in st.session_state:
         {"name": "age", "type": "Integer", "description": "Age of the person (18–80)"},
         {"name": "income", "type": "Float", "description": "Annual income in USD"},
         {"name": "city", "type": "String", "description": "US city name"},
-        {"name": "purchased", "type": "Boolean", "description": "Whether they made a purchase"},
+        {"name": "purchased", "type": "Boolean", "description": "Whether the customer completed an online purchase (True/False)"},
     ]
 if "generated_df" not in st.session_state:
     st.session_state.generated_df = None
@@ -477,7 +477,7 @@ Now generate {num_rows} diverse, realistic rows following the same JSON structur
         st.session_state.last_prompt = user_prompt
 
         # ── Batch settings ──────────────────────────────────────────
-        BATCH_SIZE = 35  # rows per API call — stays well within token limits
+        BATCH_SIZE = 100  # rows per API call — stays well within token limits
         batches = []
         num_batches = (num_rows + BATCH_SIZE - 1) // BATCH_SIZE  # ceiling division
 
