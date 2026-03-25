@@ -229,6 +229,8 @@ if "last_prompt" not in st.session_state:
     st.session_state.last_prompt = ""
 if "dupes_removed" not in st.session_state:
     st.session_state.dupes_removed = 0
+if "llm_judge_result" not in st.session_state:
+    st.session_state.llm_judge_result = None
 
 # ─── Sidebar ─────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -448,7 +450,9 @@ RULES:
 3. Values must be realistic, internally consistent, and match the stated data types.
 4. Vary values naturally — avoid repetition or obvious patterns.
 5. Respect any correlations or constraints mentioned by the user.
-6. For numeric columns, use natural variation in decimal places — avoid mechanical patterns like always ending in .00, .25, .50, or .75."""
+6. For numeric columns, use natural variation in decimal places — avoid mechanical patterns like always ending in .00, .25, .50, or .75.
+7. NEVER produce rows in sorted or sequential order. Ages must NOT count up or down. Income must NOT increment evenly. Rows must appear in random, shuffled order as they would in a real collected dataset.
+8. Add realistic noise to correlated columns. If income correlates with age, younger people can still have high incomes and older people can have lower incomes — real data has exceptions. Boolean outcomes like purchases must NOT be a perfect threshold function — include genuine noise across all age/income groups."""
 
         user_prompt = f"""Generate {num_rows} rows of synthetic data for the following dataset.
 
@@ -534,6 +538,9 @@ Return a JSON array with exactly {rows_this_batch} objects, one per row."""
             progress_bar.progress(1.0, text=f"✅ Complete! Generated {num_rows} rows across {num_batches} batches.")
 
             df = pd.DataFrame(batches)
+
+            # ── Shuffle to eliminate any sequential ordering from generation ──
+            df = df.sample(frac=1).reset_index(drop=True)
 
             # ── Trim to exact row count (batches can overshoot) ──────
             if len(df) > num_rows:
@@ -717,6 +724,100 @@ with tab3:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### 🔍 Column-Level Stats")
         st.dataframe(df.describe(include="all").T, use_container_width=True)
+
+        # ── Correlation Heatmap ───────────────────────────────────────
+        numeric_cols_heatmap = df.select_dtypes(include=["number"]).columns.tolist()
+        if len(numeric_cols_heatmap) >= 2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("### 🔥 Correlation Heatmap")
+            st.markdown("<p>Shows relationships between numeric columns. Strong correlations (close to 1 or -1) indicate the AI correctly modelled real-world dependencies.</p>", unsafe_allow_html=True)
+
+            corr = df[numeric_cols_heatmap].corr()
+            fig, ax = plt.subplots(figsize=(max(5, len(numeric_cols_heatmap) * 1.5), max(4, len(numeric_cols_heatmap) * 1.2)))
+            fig.patch.set_facecolor("#0f1525")
+            ax.set_facecolor("#0f1525")
+
+            import numpy as np
+            im = ax.imshow(corr.values, cmap="coolwarm", vmin=-1, vmax=1, aspect="auto")
+            cbar = fig.colorbar(im, ax=ax)
+            cbar.ax.yaxis.set_tick_params(color="#8ab4d8")
+            plt.setp(cbar.ax.yaxis.get_ticklabels(), color="#8ab4d8")
+
+            ax.set_xticks(range(len(numeric_cols_heatmap)))
+            ax.set_yticks(range(len(numeric_cols_heatmap)))
+            ax.set_xticklabels(numeric_cols_heatmap, color="#8ab4d8", fontsize=10)
+            ax.set_yticklabels(numeric_cols_heatmap, color="#8ab4d8", fontsize=10)
+            ax.tick_params(colors="#8ab4d8")
+
+            for i in range(len(numeric_cols_heatmap)):
+                for j in range(len(numeric_cols_heatmap)):
+                    val = corr.values[i, j]
+                    text_color = "white" if abs(val) > 0.5 else "#c8d8f0"
+                    ax.text(j, i, f"{val:.2f}", ha="center", va="center", color=text_color, fontsize=11, fontweight="bold")
+
+            for spine in ax.spines.values():
+                spine.set_edgecolor("#1e2d4a")
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        # ── LLM-as-Judge ─────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 🤖 LLM-as-Judge Evaluation")
+        st.markdown("<p>Uses Claude to automatically score the dataset on 5 quality criteria. Scales to any dataset size — no manual review needed.</p>", unsafe_allow_html=True)
+
+        judge_clicked = st.button("⚗️ Run LLM-as-Judge", type="primary", use_container_width=False)
+
+        if judge_clicked:
+            if not api_key:
+                st.error("⚠️ Please enter your Anthropic API key in the sidebar.")
+            else:
+                csv_sample = df.head(100).to_csv(index=False)
+                judge_prompt = f"""You are an expert evaluator of synthetic datasets used for machine learning training.
+
+Below is a CSV of synthetic data ({len(df)} rows total, showing first 100). Score it on each of these 5 criteria from 1–5, with a one-sentence explanation per score:
+
+1. Realism — do values look like real-world data? Are there any suspicious sequential patterns?
+2. Diversity — is there sufficient variation across rows and within columns?
+3. Type Correctness — are all columns in the correct format with no mixed types or nulls?
+4. Internal Consistency — are correlated columns logically consistent? Do correlations have realistic noise or are they too deterministic?
+5. Hallucination Check — are there any impossible values, structural impossibilities, or patterns that could not occur in a real dataset?
+
+End with an Overall score out of 5 (average of the five).
+
+Format your response as:
+1. Realism: X/5 — [one sentence]
+2. Diversity: X/5 — [one sentence]
+3. Type Correctness: X/5 — [one sentence]
+4. Internal Consistency: X/5 — [one sentence]
+5. Hallucination Check: X/5 — [one sentence]
+Overall: X.X/5
+
+CSV DATA:
+{csv_sample}"""
+
+                with st.spinner("🤖 Claude is evaluating your dataset..."):
+                    try:
+                        client = anthropic.Anthropic(api_key=api_key)
+                        response = client.messages.create(
+                            model=model_choice,
+                            max_tokens=1024,
+                            messages=[{"role": "user", "content": judge_prompt}]
+                        )
+                        result = response.content[0].text.strip()
+                        st.session_state.llm_judge_result = result
+                    except Exception as e:
+                        st.error(f"⚠️ Error running LLM judge: {str(e)}")
+
+        if st.session_state.llm_judge_result:
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+            for line in st.session_state.llm_judge_result.split("\n"):
+                if line.strip():
+                    if line.startswith("Overall"):
+                        st.markdown(f"<p style='font-size:1.1rem;font-weight:700;color:#4fc3f7;margin-top:0.5rem;'>{line}</p>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"<p style='color:#c8d8f0;margin:0.2rem 0;'>{line}</p>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### 📋 Human-in-the-Loop Rubric")
