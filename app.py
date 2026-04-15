@@ -292,7 +292,7 @@ with tab1:
         dataset_domain = st.text_input(
             "Domain / Purpose",
             value="E-commerce customer behavior",
-            placeholder="e.g. Medical patient records, Financial transactions..."
+            placeholder="e.g. Hospital patient records, Financial transactions, HR employee data..."
         )
         extra_instructions = st.text_area(
             "Extra Instructions (optional)",
@@ -451,8 +451,9 @@ RULES:
 4. Vary values naturally — avoid repetition or obvious patterns.
 5. Respect any correlations or constraints mentioned by the user.
 6. For numeric columns, use natural variation in decimal places — avoid mechanical patterns like always ending in .00, .25, .50, or .75.
-7. NEVER produce rows in sorted or sequential order. Ages must NOT count up or down. Income must NOT increment evenly. Rows must appear in random, shuffled order as they would in a real collected dataset.
-8. Add realistic noise to correlated columns. If income correlates with age, younger people can still have high incomes and older people can have lower incomes — real data has exceptions. Boolean outcomes like purchases must NOT be a perfect threshold function — include genuine noise across all age/income groups."""
+7. NEVER produce rows in sorted or sequential order. No numeric column should increment or decrement evenly across rows. Rows must appear in random, shuffled order as they would in a real collected dataset — regardless of domain.
+8. Add realistic noise to all correlated columns — no correlation should be a perfect threshold function. Real datasets always contain exceptions and outliers. Boolean and categorical outcome columns must have genuine variation across all value ranges of other columns, not just at extreme ends.
+9. For categorical and string columns, use naturally skewed distributions — some values should appear more frequently than others, many valid values should appear only once, and the distribution should resemble real-world frequency patterns rather than an even spread across all values."""
 
         user_prompt = f"""Generate {num_rows} rows of synthetic data for the following dataset.
 
